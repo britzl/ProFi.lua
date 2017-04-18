@@ -1,5 +1,6 @@
 --[[
 	ProFi v1.3, by Luke Perkin 2012. MIT Licence http://www.opensource.org/licenses/mit-license.php.
+		* Modified to count memory/garbage generated per function by Björn Ritzl
 	
 	Example:
 		ProFi = require 'ProFi'
@@ -20,23 +21,23 @@
 		ProFi:setHookCount( number/hookCount/0 )
 		ProFi:setGetTimeMethod( function/getTimeMethod/os.clock )
 		ProFi:setInspect( string/methodName, number/levels/1 )
-]]
+--]]
 
 -----------------------
 -- Locals:
 -----------------------
 
 local ProFi = {}
-local onDebugHook, sortByDurationDesc, sortByCallCount, getTime
+local onDebugHook, sortByDurationDesc, sortByCallCount, getTime, sortByGarbage
 local DEFAULT_DEBUG_HOOK_COUNT = 0
-local FORMAT_HEADER_LINE       = "| %-50s: %-40s: %-20s: %-12s: %-12s: %-12s|\n"
-local FORMAT_OUTPUT_LINE       = "| %s: %-12s: %-12s: %-12s|\n"
+local FORMAT_HEADER_LINE       = "| %-50s: %-40s: %-12s: %-12s: %-12s: %-12s: %-21s|\n"
+local FORMAT_OUTPUT_LINE       = "| %s: %-12s: %-12s: %-12s: %-12s %-8.2f|\n"
 local FORMAT_INSPECTION_LINE   = "> %s: %-12s\n"
 local FORMAT_TOTALTIME_LINE    = "| TOTAL TIME = %f\n"
 local FORMAT_MEMORY_LINE 	   = "| %-20s: %-16s: %-16s| %s\n"
 local FORMAT_HIGH_MEMORY_LINE  = "H %-20s: %-16s: %-16sH %s\n"
 local FORMAT_LOW_MEMORY_LINE   = "L %-20s: %-16s: %-16sL %s\n"
-local FORMAT_TITLE             = "%-50.50s: %-40.40s: %-20s"
+local FORMAT_TITLE             = "%-50.50s: %-40.40s: %-12s"
 local FORMAT_LINENUM           = "%4i"
 local FORMAT_TIME              = "%04.3f"
 local FORMAT_RELATIVE          = "%03.2f%%"
@@ -63,7 +64,7 @@ local FORMAT_BANNER 		   = [[
 	Pass the parameter 'once' to so that this methodis only run once.
 	Example: 
 		ProFi:start( 'once' )
-]]
+--]]
 function ProFi:start( param )
 	if param == 'once' then
 		if self:shouldReturn() then
@@ -81,7 +82,7 @@ end
 
 --[[
 	Stops profiling.
-]]
+--]]
 function ProFi:stop()
 	if self:shouldReturn() then 
 		return
@@ -111,7 +112,7 @@ end
 --[[
 	Writes the profile report to a file.
 	Param: [filename:string:optional] defaults to 'ProFi.txt' if not specified.
-]]
+--]]
 function ProFi:writeReport( filename )
 	if #self.reports > 0 or #self.memoryReports > 0 then
 		filename = filename or 'ProFi.txt'
@@ -123,7 +124,7 @@ end
 
 --[[
 	Resets any profile information stored.
-]]
+--]]
 function ProFi:reset()
 	self.reports = {}
 	self.reportsByTitle = {}
@@ -144,7 +145,7 @@ end
 	See http://pgl.yoyo.org/luai/i/debug.sethook for information.
 	Param: [hookCount:number] if 0 ProFi counts every time a function is called.
 	if 2 ProFi counts every other 2 function calls.
-]]
+--]]
 function ProFi:setHookCount( hookCount )
 	self.hookCount = hookCount
 end
@@ -154,12 +155,14 @@ end
 	Param: [sortType:string] either 'duration' or 'count'.
 	'duration' sorts by the time a method took to run.
 	'count' sorts by the number of times a method was called.
-]]
+--]]
 function ProFi:setSortMethod( sortType )
 	if sortType == 'duration' then
 		self.sortMethod = sortByDurationDesc
 	elseif sortType == 'count' then
 		self.sortMethod = sortByCallCount
+	elseif sortType == 'garbage' then
+		self.sortMethod = sortByGarbage
 	end
 end
 
@@ -167,7 +170,7 @@ end
 	By default the getTime method is os.clock (CPU time),
 	If you wish to use other time methods pass it to this function.
 	Param: [getTimeMethod:function]
-]]
+--]]
 function ProFi:setGetTimeMethod( getTimeMethod )
 	getTime = getTimeMethod
 end
@@ -179,7 +182,7 @@ end
 	provide a levels parameter to traceback a number of levels.
 	Params: [methodName:string] the name of the method you wish to inspect.
 	        [levels:number:optional] the amount of levels you wish to traceback, defaults to 1.
-]]
+--]]
 function ProFi:setInspect( methodName, levels )
 	if self.inspect then
 		self.inspect.methodName = methodName
@@ -260,7 +263,7 @@ end
 
 function ProFi:writeProfilingReportsToFile( reports, file )
 	local totalTime = self.stopTime - self.startTime
-	local totalTimeOutput =  string.format(FORMAT_TOTALTIME_LINE, totalTime)
+	local totalTimeOutput =  string.format(FORMAT_TOTALTIME_LINE, totalTime)	
 	file:write( totalTimeOutput )
 	local header = string.format( FORMAT_HEADER_LINE, "FILE", "FUNCTION", "LINE", "TIME", "RELATIVE", "CALLED" )
 	file:write( header )
@@ -268,10 +271,12 @@ function ProFi:writeProfilingReportsToFile( reports, file )
 		local timer         = string.format(FORMAT_TIME, funcReport.timer)
 		local count         = string.format(FORMAT_COUNT, funcReport.count)
 		local relTime 		= string.format(FORMAT_RELATIVE, (funcReport.timer / totalTime) * 100 )
-		local outputLine    = string.format(FORMAT_OUTPUT_LINE, funcReport.title, timer, relTime, count )
+		local totalMem = math.floor(funcReport.garbageTotal or 0)
+		local averageMem = totalMem / (funcReport.count == 0 and 1 or funcReport.count)
+		local outputLine    = string.format(FORMAT_OUTPUT_LINE, funcReport.title, timer, relTime, count, tostring(totalMem), tostring(averageMem) )
 		file:write( outputLine )
 		if funcReport.inspections then
-			self:writeInpsectionsToFile( funcReport.inspections, file )
+			self:writeInspectionsToFile( funcReport.inspections, file )
 		end
 	end
 end
@@ -312,7 +317,7 @@ function ProFi:writeBannerToFile( file )
 	file:write( banner )
 end
 
-function ProFi:writeInpsectionsToFile( inspections, file )
+function ProFi:writeInspectionsToFile( inspections, file )
 	local inspectionsList = self:sortInspectionsIntoList( inspections )
 	file:write('\n==^ INSPECT ^======================================================================================================== COUNT ===\n')
 	for i, inspection in ipairs( inspectionsList ) do
@@ -389,19 +394,35 @@ function ProFi:doInspection( inspect, funcReport )
 	end
 end
 
-function ProFi:onFunctionCall( funcInfo )
+local hookMem = 0
+
+function ProFi:onFunctionCall( funcInfo, mem )
+	-- rough estimate of how much garbage every debug hook callback generates
+	if funcInfo.what == "C" then
+		hookMem = hookMem + 0.4015
+	else
+		hookMem = hookMem + 0.6
+	end
+	
 	local funcReport = ProFi:getFuncReport( funcInfo )
 	funcReport.callTime = getTime()
 	funcReport.count = funcReport.count + 1
-	if self:shouldInspect( funcInfo ) then
-		self:doInspection( self.inspect, funcReport )
-	end
+	funcReport.garbageCount = mem
+	funcReport.hookMem = hookMem
 end
 
-function ProFi:onFunctionReturn( funcInfo )
+function ProFi:onFunctionReturn( funcInfo, mem )
+	-- rough estimate of how much garbage every debug hook callback generates
+	hookMem = hookMem + 0.5
+	
 	local funcReport = ProFi:getFuncReport( funcInfo )
 	if funcReport.callTime then
 		funcReport.timer = funcReport.timer + (getTime() - funcReport.callTime)
+	end
+	
+	local garbageCreated = (mem - (funcReport.garbageCount or 0)) - (hookMem - (funcReport.hookMem or hookMem))
+	if garbageCreated > 0 then
+		funcReport.garbageTotal = (funcReport.garbageTotal or 0) + garbageCreated
 	end
 end
 
@@ -432,11 +453,14 @@ end
 getTime = os.clock
 
 onDebugHook = function( hookType )
-	local funcInfo = debug.getinfo( 2, 'nS' )
-	if hookType == "call" then
-		ProFi:onFunctionCall( funcInfo )
-	elseif hookType == "return" then
-		ProFi:onFunctionReturn( funcInfo )
+	local mem = collectgarbage("count")
+	local funcInfo = debug.getinfo( 2, 'nSf' )
+	if funcInfo.func ~= onDebugHook then
+		if hookType == "call" then
+			ProFi:onFunctionCall( funcInfo, mem )
+		elseif hookType == "return" then
+			ProFi:onFunctionReturn( funcInfo, mem )
+		end
 	end
 end
 
@@ -446,6 +470,10 @@ end
 
 sortByCallCount = function( a, b )
 	return a.count > b.count
+end
+
+sortByGarbage = function(a, b)
+	return (a.garbageTotal or 0) > (b.garbageTotal or 0)
 end
 
 -----------------------

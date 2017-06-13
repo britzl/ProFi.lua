@@ -1,7 +1,7 @@
 --[[
 	ProFi v1.3, by Luke Perkin 2012. MIT Licence http://www.opensource.org/licenses/mit-license.php.
 		* Modified to count memory/garbage generated per function by Björn Ritzl
-	
+
 	Example:
 		ProFi = require 'ProFi'
 		ProFi:start()
@@ -62,7 +62,7 @@ local FORMAT_BANNER 		   = [[
 --[[
 	Starts profiling any method that is called between this and ProFi:stop().
 	Pass the parameter 'once' to so that this methodis only run once.
-	Example: 
+	Example:
 		ProFi:start( 'once' )
 --]]
 function ProFi:start( param )
@@ -84,7 +84,7 @@ end
 	Stops profiling.
 --]]
 function ProFi:stop()
-	if self:shouldReturn() then 
+	if self:shouldReturn() then
 		return
 	end
 	self.stopTime = getTime()
@@ -263,9 +263,9 @@ end
 
 function ProFi:writeProfilingReportsToFile( reports, file )
 	local totalTime = self.stopTime - self.startTime
-	local totalTimeOutput =  string.format(FORMAT_TOTALTIME_LINE, totalTime)	
+	local totalTimeOutput =  string.format(FORMAT_TOTALTIME_LINE, totalTime)
 	file:write( totalTimeOutput )
-	local header = string.format( FORMAT_HEADER_LINE, "FILE", "FUNCTION", "LINE", "TIME", "RELATIVE", "CALLED" )
+	local header = string.format( FORMAT_HEADER_LINE, "FILE", "FUNCTION", "LINE", "TIME", "RELATIVE", "CALLED", "MEMORY (total/avg)" )
 	file:write( header )
  	for i, funcReport in ipairs( reports ) do
 		local timer         = string.format(FORMAT_TIME, funcReport.timer)
@@ -403,7 +403,7 @@ function ProFi:onFunctionCall( funcInfo, mem )
 	else
 		hookMem = hookMem + 0.6
 	end
-	
+
 	local funcReport = ProFi:getFuncReport( funcInfo )
 	funcReport.callTime = getTime()
 	funcReport.count = funcReport.count + 1
@@ -414,12 +414,12 @@ end
 function ProFi:onFunctionReturn( funcInfo, mem )
 	-- rough estimate of how much garbage every debug hook callback generates
 	hookMem = hookMem + 0.5
-	
+
 	local funcReport = ProFi:getFuncReport( funcInfo )
 	if funcReport.callTime then
 		funcReport.timer = funcReport.timer + (getTime() - funcReport.callTime)
 	end
-	
+
 	local garbageCreated = (mem - (funcReport.garbageCount or 0)) - (hookMem - (funcReport.hookMem or hookMem))
 	if garbageCreated > 0 then
 		funcReport.garbageTotal = (funcReport.garbageTotal or 0) + garbageCreated
